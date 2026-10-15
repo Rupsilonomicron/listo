@@ -21,6 +21,15 @@ android {
     // GitHub Actions で Secrets から復元した keystore があるときだけ release 署名を設定する
     val keystorePath = System.getenv("LISTO_KEYSTORE_PATH")
     signingConfigs {
+        // debug 用の固定鍵。Actions の実行ごとに鍵が変わると上書き更新できなくなるためリポジトリに含める
+        // （配布用の release 鍵とは別物で、秘密にする必要はない）
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+            storeType = "pkcs12"
+        }
         if (!keystorePath.isNullOrEmpty()) {
             create("release") {
                 storeFile = file(keystorePath)

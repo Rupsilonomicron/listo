@@ -11,3 +11,4 @@ captures/
 *.jks
 *.keystore
 *.p12
+!app/debug.keystore
