@@ -96,10 +96,16 @@ ItemEntity
 
 ## 6. 着手時に確定すること
 
-1. パッケージ名（applicationId）
-2. GitHub リポジトリ名と公開範囲（公開／非公開）
-3. minSdk / targetSdk
-4. アプリアイコン・配色の方向性
+1. パッケージ名（applicationId）→ `io.github.rupsilonomicron.listo`
+2. GitHub リポジトリ名と公開範囲（公開／非公開）→ `Rupsilonomicron/listo`（公開）
+3. minSdk / targetSdk → 26（Android 8.0）/ 35
+4. アプリアイコン・配色の方向性 → 緑地にチェックリストのアイコン。配色は壁紙連動（Dynamic Color）、重要項目は赤系
+
+### 6.1 初版以降に追加した仕様
+
+- リスト内のグループ（見出し）：リスト＞グループ＞項目 の1段のみ。グループ自体はチェックできない。
+  グループ削除時は中の項目（履歴を含む）も削除する。ウィジェットもグループ見出し付きで表示する
+- debug ビルドはリポジトリ内の固定鍵（app/debug.keystore）で署名し、上書き更新できるようにする
 
 ## 7. 作業手順（案）
 
