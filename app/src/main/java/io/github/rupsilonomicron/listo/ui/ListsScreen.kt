@@ -62,7 +62,7 @@ fun ListsScreen(onOpenList: (Long) -> Unit) {
             data == null -> Unit
             data.isEmpty() -> EmptyState(
                 title = "リストがありません",
-                message = "右下のボタンから「買い物」「今週のタスク」などのリストを作成しましょう",
+                message = "右下のボタンから\n「買い物」「今週のタスク」などの\nリストを作成しましょう",
                 modifier = Modifier.padding(padding),
             )
             else -> LazyColumn(

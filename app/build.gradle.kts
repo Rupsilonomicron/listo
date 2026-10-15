@@ -14,8 +14,8 @@ android {
         applicationId = "io.github.rupsilonomicron.listo"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.2.1"
     }
 
     // GitHub Actions で Secrets から復元した keystore があるときだけ release 署名を設定する

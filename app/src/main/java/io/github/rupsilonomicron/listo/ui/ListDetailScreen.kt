@@ -166,9 +166,9 @@ fun ListDetailScreen(listId: Long, onBack: () -> Unit) {
                     EmptyState(
                         title = "未完了の項目はありません",
                         message = if (doneItems.isEmpty()) {
-                            "下の入力欄から項目を追加しましょう。「グループ追加」で売り場ごとなどに分けられます"
+                            "下の入力欄から項目を追加できます\n売り場ごとに分けたいときは\n右上の「グループ追加」から"
                         } else {
-                            "「履歴」タブから以前の項目を再追加できます"
+                            "「履歴」タブから\n以前の項目を再追加できます"
                         },
                     )
                 } else {
@@ -196,7 +196,7 @@ fun ListDetailScreen(listId: Long, onBack: () -> Unit) {
                 if (doneItems.isEmpty()) {
                     EmptyState(
                         title = "履歴はありません",
-                        message = "完了にした項目がここに残り、タップひとつで再追加できます",
+                        message = "完了にした項目はここに残り\n「再追加」で未完了に戻せます",
                     )
                 } else {
                     val groupNames = groups.associate { it.id to it.name }
@@ -568,7 +568,8 @@ private fun AddItemBar(
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },
-                    placeholder = { Text(if (targetGroup != null) "「${targetGroup.name}」に追加" else "項目を追加") },
+                    // 追加先は上の「追加先：〇〇」で示す。入力欄のヒントは入力済みの文字と見間違えないよう淡くする
+                    placeholder = { Text("項目名を入力", color = MaterialTheme.colorScheme.outline) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                     keyboardActions = KeyboardActions(onSend = { submit() }),
