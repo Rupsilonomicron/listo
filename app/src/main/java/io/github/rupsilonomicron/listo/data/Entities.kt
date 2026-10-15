@@ -14,8 +14,9 @@ data class ListEntity(
     val createdAt: Long,
 )
 
+/** リスト内のグループ（見出し）。階層は リスト＞グループ＞項目 の1段のみ */
 @Entity(
-    tableName = "items",
+    tableName = "item_groups",
     foreignKeys = [
         ForeignKey(
             entity = ListEntity::class,
@@ -26,9 +27,32 @@ data class ListEntity(
     ],
     indices = [Index("listId")],
 )
+data class GroupEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val listId: Long,
+    val name: String,
+    val sortOrder: Int,
+    val createdAt: Long,
+)
+
+@Entity(
+    tableName = "items",
+    foreignKeys = [
+        ForeignKey(
+            entity = ListEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["listId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    // groupId は v2 で ALTER TABLE により追加したため外部キー制約は付けない（削除は DAO で明示的に行う）
+    indices = [Index("listId"), Index("groupId")],
+)
 data class ItemEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val listId: Long,
+    /** 所属グループ。null ならグループなし */
+    val groupId: Long? = null,
     val title: String,
     val isImportant: Boolean = false,
     val isDone: Boolean = false,

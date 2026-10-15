@@ -48,6 +48,7 @@ import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import io.github.rupsilonomicron.listo.MainActivity
 import io.github.rupsilonomicron.listo.R
+import io.github.rupsilonomicron.listo.data.GroupEntity
 import io.github.rupsilonomicron.listo.data.ItemEntity
 import io.github.rupsilonomicron.listo.data.ListEntity
 import io.github.rupsilonomicron.listo.data.ListoRepository
@@ -57,7 +58,36 @@ class ListoWidgetReceiver : GlanceAppWidgetReceiver() {
     override val glanceAppWidget = ListoWidget()
 }
 
-private data class WidgetData(val list: ListEntity?, val items: List<ItemEntity>)
+private data class WidgetData(val list: ListEntity?, val groups: List<GroupEntity>, val items: List<ItemEntity>)
+
+/** ウィジェットの1行：グループ見出しか項目 */
+private sealed interface WidgetRow {
+    val key: Long
+
+    data class Header(val group: GroupEntity) : WidgetRow {
+        override val key get() = -group.id // 項目 id と衝突しないよう負数にする
+    }
+
+    data class Item(val item: ItemEntity) : WidgetRow {
+        override val key get() = item.id
+    }
+}
+
+/** グループなしの項目を先頭に、続いて項目のあるグループだけを見出し付きで並べる */
+private fun WidgetData.rows(): List<WidgetRow> {
+    val groupIds = groups.map { it.id }.toSet()
+    val byGroup = items.groupBy { it.groupId }
+    return buildList {
+        items.filter { it.groupId == null || it.groupId !in groupIds }.forEach { add(WidgetRow.Item(it)) }
+        groups.forEach { group ->
+            val groupItems = byGroup[group.id].orEmpty()
+            if (groupItems.isNotEmpty()) {
+                add(WidgetRow.Header(group))
+                groupItems.forEach { add(WidgetRow.Item(it)) }
+            }
+        }
+    }
+}
 
 // アプリ本体の重要色（Theme.kt）と揃える
 private val importantAccent = ColorProvider(day = Color(0xFFC62828), night = Color(0xFFFF8A80))
@@ -75,8 +105,11 @@ class ListoWidget : GlanceAppWidget() {
                 } else {
                     // Room の Flow を購読しているので、表示中の変更はそのまま反映される
                     val data by remember(listId) {
-                        repository.observeList(listId)
-                            .combine(repository.observeActiveItems(listId)) { list, items -> WidgetData(list, items) }
+                        combine(
+                            repository.observeList(listId),
+                            repository.observeGroups(listId),
+                            repository.observeActiveItems(listId),
+                        ) { list, groups, items -> WidgetData(list, groups, items) }
                     }.collectAsState(initial = null)
                     Content(listId, data)
                 }
@@ -135,10 +168,13 @@ private fun Content(listId: Long, data: WidgetData?) {
                     )
                 } else {
                     LazyColumn(modifier = GlanceModifier.fillMaxSize()) {
-                        items(data.items, itemId = { it.id }) { item ->
-                            Column {
-                                ItemRow(item, openList)
-                                Spacer(GlanceModifier.height(2.dp))
+                        items(data.rows(), itemId = { it.key }) { row ->
+                            when (row) {
+                                is WidgetRow.Header -> GroupHeaderRow(row.group.name, openList)
+                                is WidgetRow.Item -> Column {
+                                    ItemRow(row.item, openList)
+                                    Spacer(GlanceModifier.height(2.dp))
+                                }
                             }
                         }
                     }
@@ -165,6 +201,16 @@ private fun Header(name: String, count: Int, openList: Action) {
             style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 12.sp),
         )
     }
+}
+
+@Composable
+private fun GroupHeaderRow(name: String, openList: Action) {
+    Text(
+        name,
+        maxLines = 1,
+        style = TextStyle(color = GlanceTheme.colors.secondary, fontSize = 12.sp, fontWeight = FontWeight.Bold),
+        modifier = GlanceModifier.fillMaxWidth().padding(start = 6.dp, top = 6.dp, bottom = 2.dp).clickable(openList),
+    )
 }
 
 @Composable

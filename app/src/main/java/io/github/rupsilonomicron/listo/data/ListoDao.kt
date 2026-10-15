@@ -47,11 +47,51 @@ interface ListoDao {
     @Query("DELETE FROM items WHERE listId = :listId")
     suspend fun deleteItemsOfList(listId: Long)
 
-    /** 外部キー制約の有効・無効に依存しないよう、項目も明示的に削除する */
+    @Query("DELETE FROM item_groups WHERE listId = :listId")
+    suspend fun deleteGroupsOfList(listId: Long)
+
+    /** 外部キー制約の有効・無効に依存しないよう、グループと項目も明示的に削除する */
     @Transaction
     suspend fun deleteListWithItems(id: Long) {
         deleteItemsOfList(id)
+        deleteGroupsOfList(id)
         deleteListRow(id)
+    }
+
+    // ---- グループ ----
+
+    @Query("SELECT * FROM item_groups WHERE listId = :listId ORDER BY sortOrder, id")
+    fun observeGroups(listId: Long): Flow<List<GroupEntity>>
+
+    @Query("SELECT * FROM item_groups WHERE listId = :listId ORDER BY sortOrder, id")
+    suspend fun getGroups(listId: Long): List<GroupEntity>
+
+    @Query("SELECT COALESCE(MAX(sortOrder), -1) FROM item_groups WHERE listId = :listId")
+    suspend fun maxGroupSortOrder(listId: Long): Int
+
+    @Insert
+    suspend fun insertGroup(group: GroupEntity): Long
+
+    @Update
+    suspend fun updateGroups(groups: List<GroupEntity>)
+
+    @Query("UPDATE item_groups SET name = :name WHERE id = :id")
+    suspend fun renameGroup(id: Long, name: String)
+
+    @Query("SELECT listId FROM item_groups WHERE id = :id")
+    suspend fun listIdOfGroup(id: Long): Long?
+
+    @Query("DELETE FROM item_groups WHERE id = :id")
+    suspend fun deleteGroupRow(id: Long)
+
+    @Query("DELETE FROM items WHERE groupId = :groupId")
+    suspend fun deleteItemsOfGroup(groupId: Long)
+
+    /** グループを削除すると、中の項目（履歴を含む）も削除する */
+    @Transaction
+    suspend fun deleteGroupWithItems(id: Long) {
+        deleteItemsOfGroup(id)
+        deleteGroupRow(id)
     }
 
     // ---- 項目 ----
@@ -68,8 +108,8 @@ interface ListoDao {
     @Insert
     suspend fun insertItem(item: ItemEntity): Long
 
-    @Query("UPDATE items SET title = :title, isImportant = :isImportant WHERE id = :id")
-    suspend fun updateItemContent(id: Long, title: String, isImportant: Boolean)
+    @Query("UPDATE items SET title = :title, isImportant = :isImportant, groupId = :groupId WHERE id = :id")
+    suspend fun updateItemContent(id: Long, title: String, isImportant: Boolean, groupId: Long?)
 
     @Query("UPDATE items SET isImportant = :isImportant WHERE id = :id")
     suspend fun setImportant(id: Long, isImportant: Boolean)

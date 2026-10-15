@@ -23,16 +23,21 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
@@ -57,12 +62,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.github.rupsilonomicron.listo.data.GroupEntity
 import io.github.rupsilonomicron.listo.data.ItemEntity
 import io.github.rupsilonomicron.listo.data.ListEntity
 import io.github.rupsilonomicron.listo.ui.theme.LocalImportantColors
@@ -83,6 +91,8 @@ fun ListDetailScreen(listId: Long, onBack: () -> Unit) {
     val repository = rememberRepository()
     val loaded by remember(listId) { repository.observeList(listId).map { LoadedList(it) } }
         .collectAsStateWithLifecycle(initialValue = null)
+    val groups by remember(listId) { repository.observeGroups(listId) }
+        .collectAsStateWithLifecycle(initialValue = emptyList())
     val activeItems by remember(listId) { repository.observeActiveItems(listId) }
         .collectAsStateWithLifecycle(initialValue = emptyList())
     val doneItems by remember(listId) { repository.observeDoneItems(listId) }
@@ -94,8 +104,15 @@ fun ListDetailScreen(listId: Long, onBack: () -> Unit) {
     }
 
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    // 入力欄から追加する先のグループ。null ならグループなし
+    var targetGroupId by rememberSaveable { mutableStateOf<Long?>(null) }
+    val targetGroup = groups.firstOrNull { it.id == targetGroupId }
     var editing by remember { mutableStateOf<ItemEntity?>(null) }
+    var creatingGroup by remember { mutableStateOf(false) }
+    var renamingGroup by remember { mutableStateOf<GroupEntity?>(null) }
+    var deletingGroup by remember { mutableStateOf<GroupEntity?>(null) }
     var confirmClearHistory by remember { mutableStateOf(false) }
+    val inputFocus = remember { FocusRequester() }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -117,7 +134,9 @@ fun ListDetailScreen(listId: Long, onBack: () -> Unit) {
                     }
                 },
                 actions = {
-                    if (tab == 1 && doneItems.isNotEmpty()) {
+                    if (tab == 0) {
+                        TextButton(onClick = { creatingGroup = true }) { Text("グループ追加") }
+                    } else if (doneItems.isNotEmpty()) {
                         TextButton(onClick = { confirmClearHistory = true }) { Text("履歴を消去") }
                     }
                 },
@@ -125,7 +144,14 @@ fun ListDetailScreen(listId: Long, onBack: () -> Unit) {
         },
         bottomBar = {
             if (tab == 0) {
-                AddItemBar(onAdd = { title, important -> repository.addItem(listId, title, important) })
+                AddItemBar(
+                    groups = groups,
+                    targetGroup = targetGroup,
+                    onTargetChange = { targetGroupId = it },
+                    onCreateGroup = { creatingGroup = true },
+                    focusRequester = inputFocus,
+                    onAdd = { title, important -> repository.addItem(listId, targetGroup?.id, title, important) },
+                )
             }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -136,30 +162,35 @@ fun ListDetailScreen(listId: Long, onBack: () -> Unit) {
                 Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("履歴 (${doneItems.size})") })
             }
             if (tab == 0) {
-                if (activeItems.isEmpty()) {
+                if (activeItems.isEmpty() && groups.isEmpty()) {
                     EmptyState(
                         title = "未完了の項目はありません",
-                        message = if (doneItems.isEmpty()) "下の入力欄から項目を追加しましょう" else "「履歴」タブから以前の項目を再追加できます",
+                        message = if (doneItems.isEmpty()) {
+                            "下の入力欄から項目を追加しましょう。「グループ追加」で売り場ごとなどに分けられます"
+                        } else {
+                            "「履歴」タブから以前の項目を再追加できます"
+                        },
                     )
                 } else {
-                    LazyColumn(contentPadding = PaddingValues(bottom = 8.dp)) {
-                        items(activeItems, key = { it.id }) { item ->
-                            Column(Modifier.animateItem()) {
-                                ActiveItemRow(
-                                    item = item,
-                                    onComplete = {
-                                        repository.complete(item.id)
-                                        showSnackbar("「${item.title}」を完了にしました", "元に戻す") {
-                                            repository.undoComplete(item.id)
-                                        }
-                                    },
-                                    onToggleImportant = { repository.setImportant(item.id, !item.isImportant) },
-                                    onEdit = { editing = item },
-                                )
-                                HorizontalDivider()
+                    ActiveItemsList(
+                        groups = groups,
+                        activeItems = activeItems,
+                        onComplete = { item ->
+                            repository.complete(item.id)
+                            showSnackbar("「${item.title}」を完了にしました", "元に戻す") {
+                                repository.undoComplete(item.id)
                             }
-                        }
-                    }
+                        },
+                        onToggleImportant = { repository.setImportant(it.id, !it.isImportant) },
+                        onEdit = { editing = it },
+                        onAddToGroup = { group ->
+                            targetGroupId = group.id
+                            inputFocus.requestFocus()
+                        },
+                        onRenameGroup = { renamingGroup = it },
+                        onMoveGroup = { group, up -> repository.moveGroup(group.id, up) },
+                        onDeleteGroup = { deletingGroup = it },
+                    )
                 }
             } else {
                 if (doneItems.isEmpty()) {
@@ -168,11 +199,13 @@ fun ListDetailScreen(listId: Long, onBack: () -> Unit) {
                         message = "完了にした項目がここに残り、タップひとつで再追加できます",
                     )
                 } else {
+                    val groupNames = groups.associate { it.id to it.name }
                     LazyColumn(contentPadding = PaddingValues(bottom = 8.dp)) {
                         items(doneItems, key = { it.id }) { item ->
                             Column(Modifier.animateItem()) {
                                 HistoryItemRow(
                                     item = item,
+                                    groupName = item.groupId?.let { groupNames[it] },
                                     onRestore = {
                                         repository.restoreFromHistory(item.id)
                                         showSnackbar("「${item.title}」を再追加しました")
@@ -191,14 +224,58 @@ fun ListDetailScreen(listId: Long, onBack: () -> Unit) {
     editing?.let { item ->
         ItemEditDialog(
             item = item,
+            groups = groups,
             onDismiss = { editing = null },
-            onSave = { title, important ->
+            onSave = { title, important, groupId ->
                 editing = null
-                repository.updateItem(item.id, title, important)
+                repository.updateItem(item.id, title, important, groupId)
             },
             onDelete = {
                 editing = null
                 repository.deleteItem(item.id)
+            },
+        )
+    }
+    if (creatingGroup) {
+        TextInputDialog(
+            title = "新しいグループ",
+            label = "グループ名（例：スーパーマーケット）",
+            confirmLabel = "作成",
+            onDismiss = { creatingGroup = false },
+            onConfirm = { name ->
+                creatingGroup = false
+                repository.createGroup(listId, name)
+            },
+        )
+    }
+    renamingGroup?.let { group ->
+        TextInputDialog(
+            title = "グループ名を変更",
+            label = "グループ名",
+            confirmLabel = "変更",
+            initial = group.name,
+            onDismiss = { renamingGroup = null },
+            onConfirm = { name ->
+                renamingGroup = null
+                repository.renameGroup(group.id, name)
+            },
+        )
+    }
+    deletingGroup?.let { group ->
+        val count = activeItems.count { it.groupId == group.id } + doneItems.count { it.groupId == group.id }
+        ConfirmDialog(
+            title = "「${group.name}」を削除",
+            message = if (count == 0) {
+                "このグループを削除します。"
+            } else {
+                "グループ内の項目 $count 件（履歴を含む）も削除されます。元に戻せません。"
+            },
+            confirmLabel = "削除",
+            onDismiss = { deletingGroup = null },
+            onConfirm = {
+                deletingGroup = null
+                if (targetGroupId == group.id) targetGroupId = null
+                repository.deleteGroup(group.id)
             },
         )
     }
@@ -213,6 +290,116 @@ fun ListDetailScreen(listId: Long, onBack: () -> Unit) {
                 repository.clearHistory(listId)
             },
         )
+    }
+}
+
+/** グループなしの項目を先頭に、続いてグループごとに見出し付きで並べる */
+@Composable
+private fun ActiveItemsList(
+    groups: List<GroupEntity>,
+    activeItems: List<ItemEntity>,
+    onComplete: (ItemEntity) -> Unit,
+    onToggleImportant: (ItemEntity) -> Unit,
+    onEdit: (ItemEntity) -> Unit,
+    onAddToGroup: (GroupEntity) -> Unit,
+    onRenameGroup: (GroupEntity) -> Unit,
+    onMoveGroup: (GroupEntity, up: Boolean) -> Unit,
+    onDeleteGroup: (GroupEntity) -> Unit,
+) {
+    val groupIds = groups.map { it.id }.toSet()
+    val ungrouped = activeItems.filter { it.groupId == null || it.groupId !in groupIds }
+    val itemsByGroup = activeItems.groupBy { it.groupId }
+
+    LazyColumn(contentPadding = PaddingValues(bottom = 8.dp)) {
+        fun itemRows(rows: List<ItemEntity>) {
+            items(rows, key = { it.id }) { item ->
+                Column(Modifier.animateItem()) {
+                    ActiveItemRow(
+                        item = item,
+                        onComplete = { onComplete(item) },
+                        onToggleImportant = { onToggleImportant(item) },
+                        onEdit = { onEdit(item) },
+                    )
+                    HorizontalDivider()
+                }
+            }
+        }
+
+        itemRows(ungrouped)
+        groups.forEachIndexed { index, group ->
+            val rows = itemsByGroup[group.id].orEmpty()
+            item(key = "group-${group.id}") {
+                GroupHeader(
+                    group = group,
+                    count = rows.size,
+                    canMoveUp = index > 0,
+                    canMoveDown = index < groups.lastIndex,
+                    onAdd = { onAddToGroup(group) },
+                    onRename = { onRenameGroup(group) },
+                    onMove = { up -> onMoveGroup(group, up) },
+                    onDelete = { onDeleteGroup(group) },
+                    modifier = Modifier.animateItem(),
+                )
+            }
+            itemRows(rows)
+        }
+    }
+}
+
+@Composable
+private fun GroupHeader(
+    group: GroupEntity,
+    count: Int,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    onAdd: () -> Unit,
+    onRename: () -> Unit,
+    onMove: (up: Boolean) -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.padding(start = 16.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                group.name,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            Text(
+                "  $count 件",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(onClick = onAdd) {
+                Icon(Icons.Filled.Add, contentDescription = "「${group.name}」に追加", tint = MaterialTheme.colorScheme.primary)
+            }
+            Box {
+                var expanded by remember { mutableStateOf(false) }
+                IconButton(onClick = { expanded = true }) {
+                    Icon(Icons.Filled.MoreVert, contentDescription = "グループのメニュー")
+                }
+                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                    DropdownMenuItem(text = { Text("名前を変更") }, onClick = { expanded = false; onRename() })
+                    if (canMoveUp) {
+                        DropdownMenuItem(text = { Text("上へ移動") }, onClick = { expanded = false; onMove(true) })
+                    }
+                    if (canMoveDown) {
+                        DropdownMenuItem(text = { Text("下へ移動") }, onClick = { expanded = false; onMove(false) })
+                    }
+                    DropdownMenuItem(
+                        text = { Text("削除", color = MaterialTheme.colorScheme.error) },
+                        onClick = { expanded = false; onDelete() },
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -255,7 +442,7 @@ private fun ActiveItemRow(
 }
 
 @Composable
-private fun HistoryItemRow(item: ItemEntity, onRestore: () -> Unit, onDelete: () -> Unit) {
+private fun HistoryItemRow(item: ItemEntity, groupName: String?, onRestore: () -> Unit, onDelete: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -272,9 +459,11 @@ private fun HistoryItemRow(item: ItemEntity, onRestore: () -> Unit, onDelete: ()
                 }
                 Text(item.title, style = MaterialTheme.typography.bodyLarge)
             }
-            item.completedAt?.let {
+            val completed = item.completedAt?.let { "${completedAtFormatter.format(Instant.ofEpochMilli(it))} に完了" }
+            val subtitle = listOfNotNull(groupName, completed).joinToString("　・　")
+            if (subtitle.isNotEmpty()) {
                 Text(
-                    "${completedAtFormatter.format(Instant.ofEpochMilli(it))} に完了",
+                    subtitle,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -295,8 +484,51 @@ private fun HistoryItemRow(item: ItemEntity, onRestore: () -> Unit, onDelete: ()
     }
 }
 
+/** グループ選択用のボタン＋メニュー。追加先の切り替えと項目編集で共用する */
 @Composable
-private fun AddItemBar(onAdd: (title: String, important: Boolean) -> Unit) {
+private fun GroupPicker(
+    groups: List<GroupEntity>,
+    selected: GroupEntity?,
+    onSelect: (Long?) -> Unit,
+    prefix: String,
+    onCreateGroup: (() -> Unit)? = null,
+) {
+    Box {
+        var expanded by remember { mutableStateOf(false) }
+        TextButton(onClick = { expanded = true }) {
+            Text(
+                "$prefix${selected?.name ?: "グループなし"}",
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Icon(Icons.Filled.ArrowDropDown, contentDescription = null)
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(text = { Text("グループなし") }, onClick = { expanded = false; onSelect(null) })
+            groups.forEach { group ->
+                DropdownMenuItem(text = { Text(group.name) }, onClick = { expanded = false; onSelect(group.id) })
+            }
+            if (onCreateGroup != null) {
+                HorizontalDivider()
+                DropdownMenuItem(
+                    text = { Text("新しいグループを作成…") },
+                    leadingIcon = { Icon(Icons.Filled.Add, contentDescription = null) },
+                    onClick = { expanded = false; onCreateGroup() },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AddItemBar(
+    groups: List<GroupEntity>,
+    targetGroup: GroupEntity?,
+    onTargetChange: (Long?) -> Unit,
+    onCreateGroup: () -> Unit,
+    focusRequester: FocusRequester,
+    onAdd: (title: String, important: Boolean) -> Unit,
+) {
     var text by rememberSaveable { mutableStateOf("") }
     var important by rememberSaveable { mutableStateOf(false) }
     val importantColors = LocalImportantColors.current
@@ -309,32 +541,42 @@ private fun AddItemBar(onAdd: (title: String, important: Boolean) -> Unit) {
         }
     }
     Surface(tonalElevation = 3.dp) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
                 .imePadding()
-                .padding(horizontal = 4.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+                .padding(horizontal = 4.dp, vertical = 4.dp),
         ) {
-            IconToggleButton(checked = important, onCheckedChange = { important = it }) {
-                Icon(
-                    Icons.Filled.Star,
-                    contentDescription = if (important) "重要：オン" else "重要：オフ",
-                    tint = if (important) importantColors.accent else MaterialTheme.colorScheme.outline,
+            if (groups.isNotEmpty()) {
+                GroupPicker(
+                    groups = groups,
+                    selected = targetGroup,
+                    onSelect = onTargetChange,
+                    prefix = "追加先：",
+                    onCreateGroup = onCreateGroup,
                 )
             }
-            OutlinedTextField(
-                value = text,
-                onValueChange = { text = it },
-                placeholder = { Text("項目を追加") },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(onSend = { submit() }),
-                modifier = Modifier.weight(1f),
-            )
-            IconButton(onClick = submit, enabled = text.isNotBlank()) {
-                Icon(Icons.Filled.Add, contentDescription = "追加")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconToggleButton(checked = important, onCheckedChange = { important = it }) {
+                    Icon(
+                        Icons.Filled.Star,
+                        contentDescription = if (important) "重要：オン" else "重要：オフ",
+                        tint = if (important) importantColors.accent else MaterialTheme.colorScheme.outline,
+                    )
+                }
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    placeholder = { Text(if (targetGroup != null) "「${targetGroup.name}」に追加" else "項目を追加") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                    keyboardActions = KeyboardActions(onSend = { submit() }),
+                    modifier = Modifier.weight(1f).focusRequester(focusRequester),
+                )
+                IconButton(onClick = submit, enabled = text.isNotBlank()) {
+                    Icon(Icons.Filled.Add, contentDescription = "追加")
+                }
             }
         }
     }
@@ -343,12 +585,14 @@ private fun AddItemBar(onAdd: (title: String, important: Boolean) -> Unit) {
 @Composable
 private fun ItemEditDialog(
     item: ItemEntity,
+    groups: List<GroupEntity>,
     onDismiss: () -> Unit,
-    onSave: (title: String, important: Boolean) -> Unit,
+    onSave: (title: String, important: Boolean, groupId: Long?) -> Unit,
     onDelete: () -> Unit,
 ) {
     var title by remember { mutableStateOf(item.title) }
     var important by remember { mutableStateOf(item.isImportant) }
+    var groupId by remember { mutableStateOf(item.groupId) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("項目を編集") },
@@ -368,7 +612,21 @@ private fun ItemEditDialog(
                     Text("重要", modifier = Modifier.weight(1f))
                     Switch(checked = important, onCheckedChange = { important = it })
                 }
-                TextButton(onClick = onDelete, modifier = Modifier.padding(top = 8.dp)) {
+                if (groups.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("グループ", modifier = Modifier.weight(1f))
+                        GroupPicker(
+                            groups = groups,
+                            selected = groups.firstOrNull { it.id == groupId },
+                            onSelect = { groupId = it },
+                            prefix = "",
+                        )
+                    }
+                }
+                OutlinedButton(onClick = onDelete, modifier = Modifier.padding(top = 16.dp)) {
                     Icon(Icons.Filled.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error)
                     Spacer(Modifier.width(4.dp))
                     Text("この項目を削除", color = MaterialTheme.colorScheme.error)
@@ -376,7 +634,7 @@ private fun ItemEditDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onSave(title.trim(), important) }, enabled = title.isNotBlank()) { Text("保存") }
+            TextButton(onClick = { onSave(title.trim(), important, groupId) }, enabled = title.isNotBlank()) { Text("保存") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("キャンセル") } },
     )

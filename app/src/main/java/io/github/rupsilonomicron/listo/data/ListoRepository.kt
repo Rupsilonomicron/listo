@@ -23,6 +23,7 @@ class ListoRepository private constructor(context: Context) {
     fun observeList(id: Long) = dao.observeList(id)
     fun observeActiveItems(listId: Long) = dao.observeActiveItems(listId)
     fun observeDoneItems(listId: Long) = dao.observeDoneItems(listId)
+    fun observeGroups(listId: Long) = dao.observeGroups(listId)
 
     // ---- リスト ----
 
@@ -49,12 +50,35 @@ class ListoRepository private constructor(context: Context) {
         dao.updateLists(lists.mapIndexed { index, list -> list.copy(sortOrder = index) })
     }
 
+    // ---- グループ ----
+
+    fun createGroup(listId: Long, name: String) = write {
+        dao.insertGroup(
+            GroupEntity(listId = listId, name = name, sortOrder = dao.maxGroupSortOrder(listId) + 1, createdAt = now()),
+        )
+    }
+
+    fun renameGroup(id: Long, name: String) = write { dao.renameGroup(id, name) }
+
+    fun deleteGroup(id: Long) = write { dao.deleteGroupWithItems(id) }
+
+    fun moveGroup(id: Long, up: Boolean) = write {
+        val listId = dao.listIdOfGroup(id) ?: return@write
+        val groups = dao.getGroups(listId).toMutableList()
+        val from = groups.indexOfFirst { it.id == id }
+        val to = if (up) from - 1 else from + 1
+        if (from < 0 || to !in groups.indices) return@write
+        groups.add(to, groups.removeAt(from))
+        dao.updateGroups(groups.mapIndexed { index, group -> group.copy(sortOrder = index) })
+    }
+
     // ---- 項目 ----
 
-    fun addItem(listId: Long, title: String, isImportant: Boolean) = write {
+    fun addItem(listId: Long, groupId: Long?, title: String, isImportant: Boolean) = write {
         dao.insertItem(
             ItemEntity(
                 listId = listId,
+                groupId = groupId,
                 title = title,
                 isImportant = isImportant,
                 sortOrder = dao.maxItemSortOrder(listId) + 1,
@@ -63,7 +87,8 @@ class ListoRepository private constructor(context: Context) {
         )
     }
 
-    fun updateItem(id: Long, title: String, isImportant: Boolean) = write { dao.updateItemContent(id, title, isImportant) }
+    fun updateItem(id: Long, title: String, isImportant: Boolean, groupId: Long?) =
+        write { dao.updateItemContent(id, title, isImportant, groupId) }
 
     fun setImportant(id: Long, isImportant: Boolean) = write { dao.setImportant(id, isImportant) }
 
