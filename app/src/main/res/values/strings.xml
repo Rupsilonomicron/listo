@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Listo</string>
+    <string name="widget_label">Listo リスト</string>
+    <string name="widget_description">選んだリストの未完了項目を表示し、その場で完了にできます</string>
+</resources>

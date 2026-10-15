@@ -1,0 +1,13 @@
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+.DS_Store
+captures/
+.kotlin/
+
+# 署名鍵はコミットしない
+*.jks
+*.keystore
+*.p12
